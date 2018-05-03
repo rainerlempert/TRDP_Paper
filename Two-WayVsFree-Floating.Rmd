@@ -1,0 +1,993 @@
+---
+title: "Untitled"
+author: "Rainer"
+date: "11/1/2017"
+output: html_document
+---
+
+```{r}
+library(tidyverse)
+library(chron) # for time manipulation
+library(geosphere) # for counters!
+library(knitr)
+library(data.table)
+library(forcats)
+library(xts)
+library(TTR)
+library(lubridate)
+library(scales) 
+library(gridExtra)
+library(RColorBrewer)
+library(stringr)
+library(ggmap)
+```
+
+```{r}
+survey_data <- read_csv(file="DataSets/Vancity_CarSharing_Data.csv")
+survey_data_2 <- read_csv(file="DataSets/Vancity_CarSharing_Data_Indices.csv")
+```
+
+
+
+
+
+Clean the data set
+```{r}
+survey_data$StartDate<-as.Date(survey_data$StartDate, format="%m/%d/%y")
+survey_data$EndDate<-as.Date(survey_data$EndDate, format="%m/%d/%y")
+survey_data$Duration__in_seconds_<-as.double(survey_data$Duration__in_seconds_)
+
+#https://stackoverflow.com/questions/20637360/convert-all-data-frame-character-columns-to-factors
+survey_data <- as.data.frame(unclass(survey_data))
+```
+
+filter to make file for Matlab
+```{r}
+survey_data_2_export<-survey_data_2 %>% 
+	filter(!is.na(Q3_1)&!is.na(Q3_2)&!is.na(Q3_3)&!is.na(Q3_4)&!is.na(Q3_5)&!is.na(Q3_6)&!is.na(Q3_7)&!is.na(Q3_8)&!is.na(Q6)) %>% 
+	select(Q3_1,Q3_2,Q3_3,Q3_4,Q3_5,Q3_6,Q3_7,Q3_8)
+```
+
+export for matlab PCA
+```{r}
+write_csv(survey_data_2_export,"ride_utilization.csv")
+```
+
+after matlabings, (and manually renaming column headers) import file with PC values
+```{r}
+ride_utilization_PCs<-read_csv("ride_utilization_PCs.csv")
+```
+
+relevel for graphsfactors
+```{r}
+pca_analysis$Q3_1<-fct_relevel(pca_analysis$Q3_1,"Never", "Not every week" , "1-2 trips", "3-4 trips", "5-7 trips", "8-14 trips","15+ trips")
+pca_analysis$Q3_2<-fct_relevel(pca_analysis$Q3_2,"Never", "Not every week" , "1-2 trips", "3-4 trips", "5-7 trips", "8-14 trips","15+ trips")
+pca_analysis$Q3_3<-fct_relevel(pca_analysis$Q3_3,"Never", "Not every week" , "1-2 trips", "3-4 trips", "5-7 trips", "8-14 trips","15+ trips")
+pca_analysis$Q3_4<-fct_relevel(pca_analysis$Q3_4,"Never", "Not every week" , "1-2 trips", "3-4 trips", "5-7 trips", "8-14 trips","15+ trips")
+pca_analysis$Q3_5<-fct_relevel(pca_analysis$Q3_5,"Never", "Not every week" , "1-2 trips", "3-4 trips", "5-7 trips", "8-14 trips","15+ trips")
+pca_analysis$Q3_6<-fct_relevel(pca_analysis$Q3_6,"Never", "Not every week" , "1-2 trips", "3-4 trips", "5-7 trips", "8-14 trips","15+ trips")
+pca_analysis$Q3_7<-fct_relevel(pca_analysis$Q3_7,"Never", "Not every week" , "1-2 trips", "3-4 trips", "5-7 trips", "8-14 trips","15+ trips")
+pca_analysis$Q3_8<-fct_relevel(pca_analysis$Q3_8,"Never", "Not every week" , "1-2 trips", "3-4 trips", "5-7 trips", "8-14 trips","15+ trips")
+```
+
+first look at the first 2 PCs. Hopefully patterns will emerge... I guess we'll see.
+```{r}
+ride_utilization_PCs %>% 
+	ggplot(aes(x=PC1,y=PC2))+
+	geom_point()
+```
+prepping our survey data for analysis
+```{r}
+survey_data<-survey_data %>% 
+	filter(!is.na(Q3_1)&!is.na(Q3_2)&!is.na(Q3_3)&!is.na(Q3_4)&!is.na(Q3_5)&!is.na(Q3_6)&!is.na(Q3_7)&!is.na(Q3_8)&!is.na(Q6))
+```
+
+creating pca analysis data frame
+```{r}
+pca_analysis<-cbind(survey_data,ride_utilization_PCs)
+```
+
+```{r}
+pca_analysis<-pca_analysis %>%
+  mutate(Carshare_Type=ifelse(is.na(Q4_1)&is.na(Q4_2)&is.na(Q4_3)&is.na(Q4_4),"None",
+                    ifelse(!is.na(Q4_1)&is.na(Q4_2)&is.na(Q4_3)&is.na(Q4_4),"Only Two-way",
+                    ifelse(is.na(Q4_1)&!is.na(Q4_2)&is.na(Q4_3)&is.na(Q4_4),"Only Two-way",
+                    ifelse(is.na(Q4_1)&is.na(Q4_2)&!is.na(Q4_3)&is.na(Q4_4),"Only Free-floating",
+                    ifelse(is.na(Q4_1)&is.na(Q4_2)&is.na(Q4_3)&!is.na(Q4_4),"Only Free-floating",
+                    ifelse(!is.na(Q4_1)&!is.na(Q4_2)&is.na(Q4_3)&is.na(Q4_4),"Two-way & Free-floating",
+                    ifelse(!is.na(Q4_1)&is.na(Q4_2)&!is.na(Q4_3)&is.na(Q4_4),"Only Two-way",
+                    ifelse(!is.na(Q4_1)&is.na(Q4_2)&is.na(Q4_3)&!is.na(Q4_4),"Two-way & Free-floating",
+                    ifelse(is.na(Q4_1)&!is.na(Q4_2)&!is.na(Q4_3)&is.na(Q4_4),"Two-way & Free-floating",
+                    ifelse(is.na(Q4_1)&!is.na(Q4_2)&is.na(Q4_3)&!is.na(Q4_4),"Two-way & Free-floating",
+                    ifelse(is.na(Q4_1)&is.na(Q4_2)&!is.na(Q4_3)&!is.na(Q4_4),"Only Free-floating",
+                    ifelse(!is.na(Q4_1)&!is.na(Q4_2)&!is.na(Q4_3)&is.na(Q4_4),"Two-way & Free-floating", 
+                    ifelse(!is.na(Q4_1)&!is.na(Q4_2)&is.na(Q4_3)&!is.na(Q4_4),"Two-way & Free-floating",
+                    ifelse(!is.na(Q4_1)&is.na(Q4_2)&!is.na(Q4_3)&!is.na(Q4_4),"Two-way & Free-floating", 
+                    ifelse(is.na(Q4_1)&!is.na(Q4_2)&!is.na(Q4_3)&!is.na(Q4_4),"Two-way & Free-floating", "Two-way & Free-floating"))))))))))))))))
+
+pca_analysis$Carshare_Type<-as.factor(pca_analysis$Carshare_Type)
+
+```
+
+```{r}
+pca_analysis %>% 
+	ggplot(aes(x=PC1,y=PC2, color=Q3_1))+
+	geom_point(alpha=0.7)+
+	ggtitle("Walking")+
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
+```{r}
+pca_analysis %>% 
+	ggplot(aes(x=PC1,y=PC2, color=Q3_2))+
+	geom_point(alpha=0.7)+
+	ggtitle("Biking")+
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
+```{r}
+pca_analysis %>% 
+	ggplot(aes(x=PC1,y=PC2, color=Q3_3))+
+	geom_point(alpha=0.7)+
+	ggtitle("Public Transit")+
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
+```{r}
+pca_analysis %>% 
+	ggplot(aes(x=PC1,y=PC2, color=Q3_4))+
+	geom_point(alpha=0.7)+
+	ggtitle("Carpool/Vanpool")+
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
+```{r}
+pca_analysis %>% 
+	ggplot(aes(x=PC1,y=PC2, color=Q3_5))+
+	geom_point(alpha=0.7)+
+	ggtitle("Taxi")+
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
+```{r}
+pca_analysis %>% 
+	ggplot(aes(x=PC1,y=PC2, color=Q3_6))+
+	geom_point(alpha=0.7)+
+	ggtitle("Carshare")+
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
+```{r}
+pca_analysis %>% 
+	ggplot(aes(x=PC1,y=PC2, color=Q3_7))+
+	geom_point(alpha=0.7)+
+	ggtitle("Passenger in private car")+
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
+```{r}
+pca_analysis %>% 
+	ggplot(aes(x=PC1,y=PC2, color=Q3_8))+
+	geom_point(alpha=0.7)+
+	ggtitle("Driver in a private car")+
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
+Q9 shows something
+```{r}
+pca_analysis %>% 
+	ggplot(aes(x=PC1,y=PC2, color=Q9))+
+	geom_point(alpha=0.7)
+```
+
+Q11 as well
+```{r}
+pca_analysis %>% 
+	ggplot(aes(x=PC1,y=PC2, color=Q11))+
+	geom_point(alpha=0.7)
+```
+
+```{r}
+pca_analysis %>% 
+	ggplot(aes(x=PC1,y=PC2, color=Q23))+
+	geom_point(alpha=0.7)
+```
+
+```{r}
+pca_analysis %>% 
+	ggplot(aes(x=PC1,y=PC2, color=Q25))+
+	geom_point(alpha=0.7)
+```
+
+```{r}
+pca_analysis %>% 
+	ggplot(aes(x=PC1,y=PC2, color=Q29))+
+	geom_point(alpha=0.7)
+```
+
+
+```{r}
+pca_analysis %>%  
+  filter(!is.na(Q18)) %>% 
+  filter(!is.na(Carshare_Type)) %>%
+  filter(!(Q9=="Yes"&Q30=="Find living here unaffordable")) %>% 
+  group_by(Carshare_Type,Q18) %>%
+  tally %>% 
+  mutate(percent=100*n/sum(n)) %>% 
+  ggplot(aes(x=Carshare_Type,fill=Q18))+
+  geom_bar(aes(weight=percent),position="stack")+
+  theme_dark()+
+  theme(plot.title = element_text(hjust = 0.5),
+        legend.title=element_blank())+
+  ggtitle("Willingness to share vs carsharing service") +
+  labs(x="What type of carsharing service(s) do you belong to",
+       y="Percent")+
+  scale_fill_manual(values=rev(brewer.pal(n=5, "RdYlGn")))+
+  geom_text(aes(y = percent, label = paste(round(percent,digits=1),"%",sep="")), position = position_stack(vjust = 0.5), size=3)+
+  coord_flip()
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+```{r}
+survey_data %>%
+  group_by(Carshare_Type) %>% 
+  tally %>% 
+  ggplot(aes(x=Carshare_Type, y=n))+ 
+  geom_histogram(stat="identity")
+```
+
+```{r}
+survey_data %>%   
+  filter(!is.na(Carshare_Type)) %>% 
+  group_by(Carshare_Type,Q3_5) %>% 
+  summarize(count=n()) %>% 
+  complete(Q3_5, fill = list(count = 0)) %>% 
+  mutate(percentage=count/sum(count)) 
+```
+```{r}
+survey_data %>%   
+  filter(!is.na(Carshare_Type)) %>% 
+  group_by(Carshare_Type,Q3_5) %>% 
+  summarize(count=n()) %>% 
+  complete(Q3_5, fill = list(count = 0))
+
+levels(survey_data$Q3_5)
+```
+
+
+```{r}
+survey_data<-survey_data %>% 
+  filter(Q3_5 %in% c("Never", "Not every week" , "1-2 trips", "3-4 trips", "5-7 trips", "8-14 trips","15+ trips")) %>% 
+  droplevels()
+survey_data$Q3_5<-fct_expand(survey_data$Q3_5,"Never", "Not every week" , "1-2 trips", "3-4 trips", "5-7 trips", "8-14 trips","15+ trips")
+survey_data$Q3_5<-fct_relevel(survey_data$Q3_5,"Never", "Not every week" , "1-2 trips", "3-4 trips", "5-7 trips", "8-14 trips","15+ trips")
+levels(survey_data$Q3_5)
+```
+
+
+## Travel usage by type of CS
+
+
+```{r}
+v<-c(0,0.5,1.4,3.5,6,11,18)
+
+survey_data<-survey_data %>% 
+  filter(Carshare_Type!="None") %>% 
+  droplevels()
+
+survey_data<-survey_data %>% 
+  filter(Q3_1 %in% c("Never", "Not every week" , "1-2 trips", "3-4 trips", "5-7 trips", "8-14 trips","15+ trips"))%>% 
+  droplevels()
+
+survey_data$Q3_1<-fct_expand(survey_data$Q3_1,"Never", "Not every week" , "1-2 trips", "3-4 trips", "5-7 trips", "8-14 trips","15+ trips")
+survey_data$Q3_1<-fct_relevel(survey_data$Q3_1,"Never", "Not every week" , "1-2 trips", "3-4 trips", "5-7 trips", "8-14 trips","15+ trips")
+
+survey_data<-survey_data %>% 
+  filter(Q3_2 %in% c("Never", "Not every week" , "1-2 trips", "3-4 trips", "5-7 trips", "8-14 trips","15+ trips"))%>% 
+  droplevels()
+survey_data$Q3_2<-fct_expand(survey_data$Q3_2,"Never", "Not every week" , "1-2 trips", "3-4 trips", "5-7 trips", "8-14 trips","15+ trips")
+survey_data$Q3_2<-fct_relevel(survey_data$Q3_2,"Never", "Not every week" , "1-2 trips", "3-4 trips", "5-7 trips", "8-14 trips","15+ trips")
+
+survey_data<-survey_data %>% 
+  filter(Q3_3 %in% c("Never", "Not every week" , "1-2 trips", "3-4 trips", "5-7 trips", "8-14 trips","15+ trips"))%>% 
+  droplevels()
+survey_data$Q3_3<-fct_expand(survey_data$Q3_3,"Never", "Not every week" , "1-2 trips", "3-4 trips", "5-7 trips", "8-14 trips","15+ trips")
+survey_data$Q3_3<-fct_relevel(survey_data$Q3_3,"Never", "Not every week" , "1-2 trips", "3-4 trips", "5-7 trips", "8-14 trips","15+ trips")
+
+survey_data<-survey_data %>% 
+  filter(Q3_4 %in% c("Never", "Not every week" , "1-2 trips", "3-4 trips", "5-7 trips", "8-14 trips","15+ trips"))%>% 
+  droplevels()
+survey_data$Q3_4<-fct_expand(survey_data$Q3_4,"Never", "Not every week" , "1-2 trips", "3-4 trips", "5-7 trips", "8-14 trips","15+ trips")
+survey_data$Q3_4<-fct_relevel(survey_data$Q3_4,"Never", "Not every week" , "1-2 trips", "3-4 trips", "5-7 trips", "8-14 trips","15+ trips")
+
+survey_data<-survey_data %>% 
+  filter(Q3_5 %in% c("Never", "Not every week" , "1-2 trips", "3-4 trips", "5-7 trips", "8-14 trips","15+ trips")) %>% 
+  droplevels()
+survey_data$Q3_5<-fct_expand(survey_data$Q3_5,"Never", "Not every week" , "1-2 trips", "3-4 trips", "5-7 trips", "8-14 trips","15+ trips")
+survey_data$Q3_5<-fct_relevel(survey_data$Q3_5,"Never", "Not every week" , "1-2 trips", "3-4 trips", "5-7 trips", "8-14 trips","15+ trips")
+
+
+e<-survey_data %>%   
+  filter(!is.na(Carshare_Type)) %>% 
+  group_by(Carshare_Type,Q3_5) %>% 
+  summarize(count=n()) %>% 
+  complete(Q3_5, fill = list(count = 0)) %>% 
+  mutate(percentage=count/sum(count)) %>% 
+  mutate(v) %>% 
+  mutate(estimate=percentage*v)%>% 
+  summarize(taxi_estimate=sum(estimate)) %>% 
+  select(taxi_estimate)
+
+survey_data<-survey_data %>% 
+  filter(Q3_6 %in% c("Never", "Not every week" , "1-2 trips", "3-4 trips", "5-7 trips", "8-14 trips","15+ trips"))%>% 
+  droplevels()
+survey_data$Q3_6<-fct_expand(survey_data$Q3_6,"Never", "Not every week" , "1-2 trips", "3-4 trips", "5-7 trips", "8-14 trips","15+ trips")
+survey_data$Q3_6<-fct_relevel(survey_data$Q3_6,"Never", "Not every week" , "1-2 trips", "3-4 trips", "5-7 trips", "8-14 trips","15+ trips")
+
+survey_data<-survey_data %>% 
+  filter(Q3_7 %in% c("Never", "Not every week" , "1-2 trips", "3-4 trips", "5-7 trips", "8-14 trips","15+ trips"))%>% 
+  droplevels()
+survey_data$Q3_7<-fct_expand(survey_data$Q3_7,"Never", "Not every week" , "1-2 trips", "3-4 trips", "5-7 trips", "8-14 trips","15+ trips")
+survey_data$Q3_7<-fct_relevel(survey_data$Q3_7,"Never", "Not every week" , "1-2 trips", "3-4 trips", "5-7 trips", "8-14 trips","15+ trips")
+
+survey_data<-survey_data %>% 
+  filter(Q3_8 %in% c("Never", "Not every week" , "1-2 trips", "3-4 trips", "5-7 trips", "8-14 trips","15+ trips"))%>% 
+  droplevels()
+survey_data$Q3_8<-fct_expand(survey_data$Q3_8,"Never", "Not every week" , "1-2 trips", "3-4 trips", "5-7 trips", "8-14 trips","15+ trips")
+survey_data$Q3_8<-fct_relevel(survey_data$Q3_8,"Never", "Not every week" , "1-2 trips", "3-4 trips", "5-7 trips", "8-14 trips","15+ trips")
+
+
+
+
+survey_data$Carshare_Type<-fct_relevel(survey_data$Carshare_Type,"Only Free-floating","Only Two-way","Two-way & Free-floating")
+
+
+n<-tibble(Carshare_Type=c("Only Free-floating","Only Two-way","Two-way & Free-floating"))
+
+  a<-survey_data %>%
+  filter(!is.na(Carshare_Type)) %>% 
+  group_by(Carshare_Type,Q3_1) %>% 
+  summarize(count=n()) %>% 
+  mutate(percentage=count/sum(count)) %>%
+  mutate(v) %>% 
+  mutate(estimate=percentage*v) %>% 
+  summarize(walk_estimate=sum(estimate)) %>% 
+  select(walk_estimate)
+
+
+b<-survey_data %>%
+  filter(!is.na(Carshare_Type)) %>% 
+  group_by(Carshare_Type,Q3_2) %>% 
+  summarize(count=n()) %>% 
+  mutate(percentage=count/sum(count)) %>%
+  mutate(v) %>% 
+  mutate(estimate=percentage*v) %>% 
+  summarize(bike_estimate=sum(estimate)) %>% 
+  select(bike_estimate)
+
+
+c<-survey_data %>%
+  filter(!is.na(Carshare_Type)) %>%
+  group_by(Carshare_Type,Q3_3) %>% 
+  summarize(count=n()) %>% 
+  mutate(percentage=count/sum(count)) %>%
+  mutate(v) %>% 
+  mutate(estimate=percentage*v) %>% 
+  summarize(transit_estimate=sum(estimate)) %>% 
+  select(transit_estimate)
+
+d<-survey_data %>%
+  filter(!is.na(Carshare_Type)) %>% 
+  group_by(Carshare_Type,Q3_4) %>% 
+  summarize(count=n()) %>% 
+  mutate(percentage=count/sum(count)) %>%
+  mutate(v) %>% 
+  mutate(estimate=percentage*v) %>% 
+  summarize(carpool_estimate=sum(estimate)) %>% 
+  select(carpool_estimate)
+
+
+
+
+
+
+  
+
+f<-survey_data %>%
+  filter(!is.na(Carshare_Type)) %>% 
+  group_by(Carshare_Type,Q3_6) %>% 
+  summarize(count=n()) %>% 
+  mutate(percentage=count/sum(count)) %>%
+  mutate(v) %>% 
+  mutate(estimate=percentage*v) %>% 
+  summarize(carshare_estimate=sum(estimate)) %>% 
+  select(carshare_estimate)
+
+g<-survey_data %>%
+  filter(!is.na(Carshare_Type)) %>%
+  group_by(Carshare_Type,Q3_7) %>% 
+  summarize(count=n()) %>% 
+  mutate(percentage=count/sum(count)) %>%
+  mutate(v) %>% 
+  mutate(estimate=percentage*v) %>% 
+  summarize(car_passenger_estimate=sum(estimate)) %>% 
+  select(car_passenger_estimate)
+
+h<-survey_data %>%
+  filter(!is.na(Carshare_Type)) %>% 
+  group_by(Carshare_Type,Q3_8) %>% 
+  summarize(count=n()) %>% 
+  mutate(percentage=count/sum(count)) %>%
+  mutate(v) %>% 
+  mutate(estimate=percentage*v) %>% 
+  summarize(car_driver_estimate=sum(estimate)) %>% 
+  select(car_driver_estimate)
+
+
+Carshare_Type_travel_estimates<-data.frame(n,a,b,c,d,e,f,g,h)
+Carshare_Type_travel_estimates[,"Total"]<-rowSums(Carshare_Type_travel_estimates[,-(1)])
+
+#Q30_travel_estimates
+#write.csv(Q30_travel_estimates, "Q30_travel_estimates.csv",row.names = TRUE,col.names = TRUE)
+
+
+Carshare_Type_travel_estimates_long<-gather(Carshare_Type_travel_estimates, mode, tripsPerWeek, walk_estimate:Total,factor_key=TRUE)
+
+Carshare_Type_travel_estimates_together_chart<-Carshare_Type_travel_estimates_long %>% 
+  ggplot(aes(y=Carshare_Type,x=tripsPerWeek))+
+  geom_point(aes(color=Carshare_Type))+
+  facet_wrap(~mode)+
+  labs(y=str_wrap("What type of carsharing service(s) do you belong to?",width=40))+
+  theme(legend.position = "none")
+
+
+Carshare_Type_travel_estimates_long$mode<-fct_rev(fct_relevel(Carshare_Type_travel_estimates_long$mode,"walk_estimate", "bike_estimate","transit_estimate" ,"carshare_estimate",  "car_passenger_estimate" ,"carpool_estimate","car_driver_estimate","taxi_estimate" ))
+
+
+Carshare_Type_best <-   Carshare_Type_travel_estimates_long %>%
+  filter(mode!="Total") %>% 
+  group_by(Carshare_Type) %>% 
+  mutate(percent=100*(tripsPerWeek/sum(tripsPerWeek))) %>% 
+  ggplot(aes(x=Carshare_Type,fill=mode))+
+  geom_bar(aes(weight=percent),position = "stack")+
+  theme_dark()+
+  labs(y="Percentage of total trips per week",
+       x="What type of carsharing service(s) do you belong to?")+
+  theme(legend.title=element_blank(),
+        plot.title = element_text(hjust = 0.5))+
+  ggtitle("How many trips a week do you take?") +
+  #scale_fill_manual(values=brewer.pal(n=8, "BuPu"))+
+  geom_text(aes(y = percent, label = paste(round(percent,digits=1),"%",sep="")), position = position_stack(vjust = 0.5), size=3) +
+  coord_flip()
+Carshare_Type_best
+```
+
+```{r}
+ggsave(filename = 'Two-WayVsFree-Floating/Q3TripEstimates_TypeOfCS_Percent.png', plot = Carshare_Type_best, device = 'png', width = 14, height = 6)
+ggsave(filename = 'Two-WayVsFree-Floating/Q3TripEstimates_TypeOfCS_Aggregate.png', plot = Carshare_Type_travel_estimates_together_chart, device = 'png', width = 10, height = 6)
+```
+
+
+## affordability
+```{r}
+survey_data$Q30<-fct_relevel(survey_data$Q30,"Prefer not to answer" , "I/my household find living here unaffordable, or close to unaffordable", "I/my household meet our needs but cannot save for the future", "I/my household can comfortably meet our present and future needs")
+
+CarshareType_Q30 <- survey_data %>%  
+  filter(!is.na(Carshare_Type)) %>% 
+  filter(!is.na(Q30)) %>%
+  filter(!(Q9=="Yes"&Q30=="Find living here unaffordable")) %>% 
+  group_by(Carshare_Type,Q30) %>%
+  tally %>%
+  mutate(percent=100*n/sum(n)) %>% 
+  ggplot(aes(x=Q30,y=percent, fill=Q30))+
+  geom_bar(stat="identity")+
+  facet_wrap(~Carshare_Type, ncol=1)+
+  theme_dark()+
+  theme(plot.title = element_text(hjust = 0.5),
+        legend.position="none")+
+  ggtitle("Affordability vs carsharing service") +
+  labs(x="How affordable is your living situation",
+       y="Percent")+
+  scale_fill_manual(values=rev(brewer.pal(n=5, "RdYlGn")))+
+  coord_flip()
+
+ 
+
+CarshareType_Q30_alt <- survey_data %>%  
+  filter(!is.na(Q30)) %>% 
+  filter(!is.na(Carshare_Type)) %>%
+  filter(!(Q9=="Yes"&Q30=="Find living here unaffordable")) %>% 
+  group_by(Carshare_Type,Q30) %>%
+  tally %>% 
+  mutate(percent=100*n/sum(n)) %>% 
+  ggplot(aes(x=Carshare_Type,fill=Q30))+
+  geom_bar(aes(weight=percent),position="stack")+
+  theme_dark()+
+  theme(plot.title = element_text(hjust = 0.5),
+        legend.title=element_blank())+
+  ggtitle("Affordability vs carsharing service") +
+  labs(x="What type of carsharing service(s) do you belong to",
+       y="Percent")+
+  scale_fill_manual(values=rev(brewer.pal(n=5, "RdYlGn")))+
+  geom_text(aes(y = percent, label = paste(round(percent,digits=1),"%",sep="")), position = position_stack(vjust = 0.5), size=3)+
+  coord_flip()
+
+CarshareType_Q30
+CarshareType_Q30_alt
+
+```
+
+
+```{r}
+ggsave(filename = 'Two-WayVsFree-Floating/Q30Affordability_TypeOfCS.png', plot = CarshareType_Q30, device = 'png', width = 10, height = 10)
+ggsave(filename = 'Two-WayVsFree-Floating/Q30Affordability_TypeOfCS_Alt.png', plot = CarshareType_Q30_alt, device = 'png', width = 10, height = 6)
+```
+
+## income
+```{r}
+survey_data$Q6<-fct_relevel(survey_data$Q6,"Less than one year"  , "1-2 years", "3-5 years", "6-10 years" , "11 years or longer")
+
+survey_data$Q31<-fct_relevel(survey_data$Q31,"Over $150,000" , "$100,000 – $149,999" , "$75,000 – $99,999","$50,000 – $74,999", "$25,000 – $49,999", "Under $25,000")
+
+CarshareType_Q31 <- survey_data %>%  
+  filter(!is.na(Carshare_Type)) %>% 
+  filter(!is.na(Q31)) %>%
+  filter(!(Q9=="Yes"&Q31=="Find living here unaffordable")) %>% 
+  group_by(Carshare_Type,Q31) %>%
+  tally %>%
+  mutate(percent=100*n/sum(n)) %>% 
+  ggplot(aes(x=Q31,y=percent, fill=Q31))+
+  geom_bar(stat="identity")+
+  facet_wrap(~Carshare_Type,ncol=1)+
+  theme_dark()+
+  theme(plot.title = element_text(hjust = 0.5),
+        legend.position="none")+
+  ggtitle("Income vs carsharing service(s)") +
+  labs(x="Income",
+       y="Percent")+
+  scale_fill_manual(values=rev(brewer.pal(n=6, "RdYlGn")))+
+  coord_flip()
+
+ 
+
+CarshareType_Q31_alt <- survey_data %>%  
+  filter(!is.na(Q31)) %>% 
+  filter(!is.na(Carshare_Type)) %>%
+  filter(!(Q9=="Yes"&Q30=="Find living here unaffordable")) %>% 
+  group_by(Carshare_Type,Q31) %>%
+  tally %>% 
+  mutate(percent=100*n/sum(n)) %>% 
+  ggplot(aes(x=Carshare_Type,fill=Q31))+
+  geom_bar(aes(weight=percent),position="stack")+
+  theme_dark()+
+  theme(plot.title = element_text(hjust = 0.5),
+        legend.title=element_blank())+
+  ggtitle("Income vs carsharing service(s)") +
+  labs(x="What type of cs service(s) do you belong to?",
+       y="Percent")+
+  scale_fill_manual(values=rev(brewer.pal(n=6, "RdYlGn")))+
+  geom_text(aes(y = percent, label = paste(round(percent,digits=1),"%",sep="")), position = position_stack(vjust = 0.5), size=3)+
+  coord_flip()
+
+CarshareType_Q31
+CarshareType_Q31_alt
+```
+
+```{r}
+ggsave(filename = 'Two-WayVsFree-Floating/Q31Income_TypeOfCS.png', plot = CarshareType_Q31, device = 'png', width = 10, height = 8)
+ggsave(filename = 'Two-WayVsFree-Floating/Q31Income_TypeOfCS_Alt.png', plot = CarshareType_Q31_alt, device = 'png', width = 10, height = 8)
+```
+
+## muni
+
+```{r}
+
+survey_data<-survey_data %>%
+  filter(!is.na(Q2)) %>% 
+  mutate(Muni = ifelse(Q2=="Vancouver", "Vancouver","Other B.C. Municipalities"))
+
+survey_data$Q30<-fct_relevel(survey_data$Q30,"Prefer not to answer" , "I/my household find living here unaffordable, or close to unaffordable", "I/my household meet our needs but cannot save for the future", "I/my household can comfortably meet our present and future needs")
+
+CarshareType_Muni <- survey_data %>%  
+  filter(!is.na(Carshare_Type)) %>% 
+  filter(!is.na(Muni)) %>%
+  filter(!(Q9=="Yes"&Q30=="Find living here unaffordable")) %>% 
+  group_by(Muni,Carshare_Type) %>%
+  tally %>%
+  mutate(percent=100*n/sum(n)) %>% 
+  ggplot(aes(x=Carshare_Type,y=percent, fill=Carshare_Type))+
+  geom_bar(stat="identity")+
+  facet_wrap(~Muni, ncol=1)+
+  theme_dark()+
+  theme(plot.title = element_text(hjust = 0.5),
+        legend.position="none")+
+  ggtitle("Municipality vs carsharing service") +
+  labs(x="What type of carsharing service(s) do you belong to",
+       y="Percent")+
+  scale_fill_manual(values=rev(brewer.pal(n=5, "RdYlGn")))+
+  coord_flip()
+
+ 
+
+CarshareType_Muni_alt <- survey_data %>%  
+  filter(!is.na(Muni)) %>% 
+  filter(!is.na(Carshare_Type)) %>%
+  filter(!(Q9=="Yes"&Q30=="Find living here unaffordable")) %>% 
+  group_by(Muni, Carshare_Type) %>%
+  tally %>% 
+  mutate(percent=100*n/sum(n)) %>% 
+  ggplot(aes(x=Muni,fill=Carshare_Type))+
+  geom_bar(aes(weight=percent),position="stack")+
+  theme_dark()+
+  theme(plot.title = element_text(hjust = 0.5),
+        legend.title=element_blank())+
+  ggtitle("Municipality vs carsharing service") +
+  labs(x="Municipality",
+       y="Percent")+
+  scale_fill_manual(values=rev(brewer.pal(n=5, "RdYlGn")))+
+  geom_text(aes(y = percent, label = paste(round(percent,digits=1),"%",sep="")), position = position_stack(vjust = 0.5), size=3)+
+  coord_flip()
+
+CarshareType_Muni
+CarshareType_Muni_alt
+
+```
+
+```{r}
+ggsave(filename = 'Two-WayVsFree-Floating/Q2Muni_TypeOfCS.png', plot = CarshareType_Muni, device = 'png', width = 10, height = 8)
+ggsave(filename = 'Two-WayVsFree-Floating/Q2Muni_TypeOfCS_Alt.png', plot = CarshareType_Muni_alt, device = 'png', width = 10, height = 8)
+```
+
+
+
+## age
+
+```{r}
+
+survey_data$Q30<-fct_relevel(survey_data$Q30,"Prefer not to answer" , "I/my household find living here unaffordable, or close to unaffordable", "I/my household meet our needs but cannot save for the future", "I/my household can comfortably meet our present and future needs")
+
+CarshareType_Age <- survey_data %>%  
+  filter(!is.na(Carshare_Type)) %>% 
+  filter(!is.na(Q23)) %>%
+  filter(!(Q9=="Yes"&Q30=="Find living here unaffordable")) %>% 
+  group_by(Q23,Carshare_Type) %>%
+  tally %>%
+  mutate(percent=100*n/sum(n)) %>% 
+  ggplot(aes(x=Carshare_Type,y=percent, fill=Carshare_Type))+
+  geom_bar(stat="identity")+
+  facet_wrap(~Q23, ncol=1)+
+  theme_dark()+
+  theme(plot.title = element_text(hjust = 0.5),
+        legend.position="none")+
+  ggtitle("Age vs carsharing service") +
+  labs(x="What type of carsharing service(s) do you belong to",
+       y="Percent")+
+  scale_fill_manual(values=rev(brewer.pal(n=5, "RdYlGn")))+
+  coord_flip()
+
+ 
+
+CarshareType_Age_alt <- survey_data %>%  
+  filter(!is.na(Q23)) %>% 
+  filter(!is.na(Carshare_Type)) %>%
+  filter(!(Q9=="Yes"&Q30=="Find living here unaffordable")) %>% 
+  group_by(Q23, Carshare_Type) %>%
+  tally %>% 
+  mutate(percent=100*n/sum(n)) %>% 
+  ggplot(aes(x=Q23,fill=Carshare_Type))+
+  geom_bar(aes(weight=percent),position="stack")+
+  theme_dark()+
+  theme(plot.title = element_text(hjust = 0.5),
+        legend.title=element_blank())+
+  ggtitle("Age vs carsharing service") +
+  labs(x="Age",
+       y="Percent")+
+  scale_fill_manual(values=rev(brewer.pal(n=5, "RdYlGn")))+
+  geom_text(aes(y = percent, label = paste(round(percent,digits=1),"%",sep="")), position = position_stack(vjust = 0.5), size=3)+
+  coord_flip()
+
+CarshareType_Age
+CarshareType_Age_alt
+
+```
+
+```{r}
+ggsave(filename = 'Two-WayVsFree-Floating/Q23Age_TypeOfCS.png', plot = CarshareType_Age, device = 'png', width = 10, height = 8)
+ggsave(filename = 'Two-WayVsFree-Floating/Q23Age_TypeOfCS_Alt.png', plot = CarshareType_Age_alt, device = 'png', width = 10, height = 8)
+```
+
+
+## age flip
+
+```{r}
+
+survey_data$Q30<-fct_relevel(survey_data$Q30,"Prefer not to answer" , "I/my household find living here unaffordable, or close to unaffordable", "I/my household meet our needs but cannot save for the future", "I/my household can comfortably meet our present and future needs")
+
+CarshareType_Age_Flip <- survey_data %>%  
+  filter(!is.na(Carshare_Type)) %>% 
+  filter(!is.na(Q23)) %>%
+  filter(!(Q9=="Yes"&Q30=="Find living here unaffordable")) %>% 
+  group_by(Carshare_Type,Q23) %>%
+  tally %>%
+  mutate(percent=100*n/sum(n)) %>% 
+  ggplot(aes(x=Q23,y=percent, fill=Q23))+
+  geom_bar(stat="identity")+
+  facet_wrap(~Carshare_Type, ncol=1)+
+  theme_dark()+
+  theme(plot.title = element_text(hjust = 0.5),
+        legend.position="none")+
+  ggtitle("Age vs carsharing service") +
+  labs(x="Age",
+       y="Percent")+
+  scale_fill_manual(values=rev(brewer.pal(n=6, "RdYlGn")))+
+  coord_flip()
+
+ 
+
+CarshareType_Age_Flip_alt <- survey_data %>%  
+  filter(!is.na(Q23)) %>% 
+  filter(!is.na(Carshare_Type)) %>%
+  filter(!(Q9=="Yes"&Q30=="Find living here unaffordable")) %>% 
+  group_by(Carshare_Type,Q23) %>%
+  tally %>% 
+  mutate(percent=100*n/sum(n)) %>% 
+  ggplot(aes(x=Carshare_Type,fill=Q23))+
+  geom_bar(aes(weight=percent),position="stack")+
+  theme_dark()+
+  theme(plot.title = element_text(hjust = 0.5),
+        legend.title=element_blank())+
+  ggtitle("Age vs carsharing service") +
+  labs(x="What type of carsharing service(s) do you belong to",
+       y="Percent")+
+  scale_fill_manual(values=rev(brewer.pal(n=6, "RdYlGn")))+
+  geom_text(aes(y = percent, label = paste(round(percent,digits=1),"%",sep="")), position = position_stack(vjust = 0.5), size=3)+
+  coord_flip()
+
+CarshareType_Age_Flip
+CarshareType_Age_Flip_alt
+
+```
+
+```{r}
+ggsave(filename = 'Two-WayVsFree-Floating/Q23Age_TypeOfCS_Flip.png', plot = CarshareType_Age_Flip, device = 'png', width = 10, height = 8)
+ggsave(filename = 'Two-WayVsFree-Floating/Q23Age_TypeOfCS_Alt_Flip.png', plot = CarshareType_Age_Flip_alt, device = 'png', width = 10, height = 8)
+```
+
+
+## length of carsharing
+
+```{r}
+
+survey_data$Q30<-fct_relevel(survey_data$Q30,"Prefer not to answer" , "I/my household find living here unaffordable, or close to unaffordable", "I/my household meet our needs but cannot save for the future", "I/my household can comfortably meet our present and future needs")
+
+CarshareType_Length <- survey_data %>%  
+  filter(!is.na(Carshare_Type)) %>% 
+  filter(!is.na(Q6)) %>%
+  filter(!(Q9=="Yes"&Q30=="Find living here unaffordable")) %>% 
+  group_by(Q6,Carshare_Type) %>%
+  tally %>%
+  mutate(percent=100*n/sum(n)) %>% 
+  ggplot(aes(x=Carshare_Type,y=percent, fill=Carshare_Type))+
+  geom_bar(stat="identity")+
+  facet_wrap(~Q6, ncol=1)+
+  theme_dark()+
+  theme(plot.title = element_text(hjust = 0.5),
+        legend.position="none")+
+  ggtitle("Length of membership vs carsharing service") +
+  labs(x="What type of carsharing service(s) do you belong to",
+       y="Percent")+
+  scale_fill_manual(values=rev(brewer.pal(n=5, "RdYlGn")))+
+  coord_flip()
+
+ 
+
+CarshareType_Length_alt <- survey_data %>%  
+  filter(!is.na(Q6)) %>% 
+  filter(!is.na(Carshare_Type)) %>%
+  filter(!(Q9=="Yes"&Q30=="Find living here unaffordable")) %>% 
+  group_by(Q6, Carshare_Type) %>%
+  tally %>% 
+  mutate(percent=100*n/sum(n)) %>% 
+  ggplot(aes(x=Q6,fill=Carshare_Type))+
+  geom_bar(aes(weight=percent),position="stack")+
+  theme_dark()+
+  theme(plot.title = element_text(hjust = 0.5),
+        legend.title=element_blank())+
+  ggtitle("Length of membership vs carsharing service") +
+  labs(x="Length of membership",
+       y="Percent")+
+  scale_fill_manual(values=rev(brewer.pal(n=5, "RdYlGn")))+
+  geom_text(aes(y = percent, label = paste(round(percent,digits=1),"%",sep="")), position = position_stack(vjust = 0.5), size=3)+
+  coord_flip()
+
+CarshareType_Length
+CarshareType_Length_alt
+
+```
+
+```{r}
+ggsave(filename = 'Two-WayVsFree-Floating/Q6Length_TypeOfCS.png', plot = CarshareType_Age, device = 'png', width = 10, height = 8)
+ggsave(filename = 'Two-WayVsFree-Floating/Q6Length_TypeOfCS_Alt.png', plot = CarshareType_Age_alt, device = 'png', width = 10, height = 8)
+```
+
+## would you have acquired a vehicle?
+
+```{r}
+
+survey_data$Q30<-fct_relevel(survey_data$Q30,"Prefer not to answer" , "I/my household find living here unaffordable, or close to unaffordable", "I/my household meet our needs but cannot save for the future", "I/my household can comfortably meet our present and future needs")
+
+CarshareType_Acquire <- survey_data %>%  
+  filter(!is.na(Carshare_Type)) %>% 
+  filter(!is.na(Q9)) %>%
+  filter(!(Q9=="Yes"&Q30=="Find living here unaffordable")) %>% 
+  group_by(Carshare_Type,Q9) %>%
+  tally %>%
+  mutate(percent=100*n/sum(n)) %>% 
+  ggplot(aes(x=Q9,y=percent, fill=Q9))+
+  geom_bar(stat="identity")+
+  facet_wrap(~Carshare_Type, ncol=1)+
+  theme_dark()+
+  theme(plot.title = element_text(hjust = 0.5),
+        legend.position="none")+
+  ggtitle("W/o cs, would you have acquired a vehicle vs carsharing service") +
+  labs(x="W/o cs, would you have acquired a vehicle?",
+       y="Percent")+
+  scale_fill_manual(values=rev(brewer.pal(n=5, "RdYlGn")))+
+  coord_flip()
+
+ 
+
+CarshareType_Acquire_alt <- survey_data %>%  
+  filter(!is.na(Q9)) %>% 
+  filter(!is.na(Carshare_Type)) %>%
+  filter(!(Q9=="Yes"&Q30=="Find living here unaffordable")) %>% 
+  group_by( Carshare_Type,Q9) %>%
+  tally %>% 
+  mutate(percent=100*n/sum(n)) %>% 
+  ggplot(aes(x=Carshare_Type,fill=Q9))+
+  geom_bar(aes(weight=percent),position="stack")+
+  theme_dark()+
+  theme(plot.title = element_text(hjust = 0.5))+
+  ggtitle("W/o cs, would you have acquired a vehicle vs carsharing service") +
+  labs(x="What type of carsharing service(s) do you belong to",
+       y="Percent")+
+  scale_fill_manual(values=rev(brewer.pal(n=5, "RdYlGn")))+
+  geom_text(aes(y = percent, label = paste(round(percent,digits=1),"%",sep="")), position = position_stack(vjust = 0.5), size=3)+
+  labs(fill=str_wrap('W/o cs, would you have acquired a vehicle',width=15))+
+  coord_flip()
+
+CarshareType_Acquire
+CarshareType_Acquire_alt
+
+```
+
+```{r}
+ggsave(filename = 'Two-WayVsFree-Floating/Q9Acquire_TypeOfCS.png', plot = CarshareType_Acquire, device = 'png', width = 10, height = 8)
+ggsave(filename = 'Two-WayVsFree-Floating/Q9Acquire_TypeOfCS_Alt.png', plot = CarshareType_Acquire_alt, device = 'png', width = 10, height = 8)
+```
+
+
+## Have you disposed of a vehicle??
+```{r}
+
+survey_data$Q30<-fct_relevel(survey_data$Q30,"Prefer not to answer" , "I/my household find living here unaffordable, or close to unaffordable", "I/my household meet our needs but cannot save for the future", "I/my household can comfortably meet our present and future needs")
+
+CarshareType_Dispose <- survey_data %>%  
+  filter(!is.na(Carshare_Type)) %>% 
+  filter(!is.na(Q8)) %>%
+  filter(!(Q9=="Yes"&Q30=="Find living here unaffordable")) %>% 
+  group_by(Carshare_Type,Q8) %>%
+  tally %>%
+  mutate(percent=100*n/sum(n)) %>% 
+  ggplot(aes(x=Q8,y=percent, fill=Q8))+
+  geom_bar(stat="identity")+
+  facet_wrap(~Carshare_Type, ncol=1)+
+  theme_dark()+
+  theme(plot.title = element_text(hjust = 0.5),
+        legend.position="none")+
+  ggtitle("Have you disposed of a vehicle and used CS vs carsharing service") +
+  labs(x="Have you disposed of a vehicle and used CS?",
+       y="Percent")+
+  scale_fill_manual(values=rev(brewer.pal(n=5, "RdYlGn")))+
+  coord_flip()
+
+ 
+
+CarshareType_Dispose_alt <- survey_data %>%  
+  filter(!is.na(Q8)) %>% 
+  filter(!is.na(Carshare_Type)) %>%
+  filter(!(Q9=="Yes"&Q30=="Find living here unaffordable")) %>% 
+  group_by( Carshare_Type,Q8) %>%
+  tally %>% 
+  mutate(percent=100*n/sum(n)) %>% 
+  ggplot(aes(x=Carshare_Type,fill=Q8))+
+  geom_bar(aes(weight=percent),position="stack")+
+  theme_dark()+
+  theme(plot.title = element_text(hjust = 0.5))+
+  ggtitle("Have you disposed of a vehicle and used CS vs carsharing service") +
+  labs(x="What type of carsharing service(s) do you belong to",
+       y="Percent")+
+  scale_fill_manual(values=rev(brewer.pal(n=5, "RdYlGn")))+
+  geom_text(aes(y = percent, label = paste(round(percent,digits=1),"%",sep="")), position = position_stack(vjust = 0.5), size=3)+
+  labs(fill=str_wrap('Have you disposed of a vehicle and used CS ',width=15))+
+  coord_flip()
+
+CarshareType_Dispose
+CarshareType_Dispose_alt
+
+```
+
+```{r}
+ggsave(filename = 'Two-WayVsFree-Floating/Q8Dispose_TypeOfCS.png', plot = CarshareType_Dispose, device = 'png', width = 10, height = 8)
+ggsave(filename = 'Two-WayVsFree-Floating/Q8Dispose_TypeOfCS_Alt.png', plot = CarshareType_Dispose_alt, device = 'png', width = 10, height = 8)
+```
+
+## Have you disposed of anything?
+```{r}
+
+survey_data$Q30<-fct_relevel(survey_data$Q30,"Prefer not to answer" , "I/my household find living here unaffordable, or close to unaffordable", "I/my household meet our needs but cannot save for the future", "I/my household can comfortably meet our present and future needs")
+
+CarshareType_Convenience <- survey_data %>%  
+  filter(!is.na(Carshare_Type)) %>% 
+  filter(!is.na(Q7_3)) %>%
+  filter(!(Q9=="Yes"&Q30=="Find living here unaffordable")) %>% 
+  group_by(Carshare_Type,Q7_3) %>%
+  tally %>%
+  mutate(percent=100*n/sum(n)) %>% 
+  ggplot(aes(x=Q7_3,y=percent, fill=Q7_3))+
+  geom_bar(stat="identity")+
+  facet_wrap(~Carshare_Type, ncol=1)+
+  theme_dark()+
+  theme(plot.title = element_text(hjust = 0.5),
+        legend.position="none")+
+  ggtitle("Do you use CS for convenience vs carsharing service") +
+  labs(x="Do you use CS for convenience?",
+       y="Percent")+
+  scale_fill_manual(values=rev(brewer.pal(n=5, "RdYlGn")))+
+  coord_flip()
+
+ 
+
+CarshareType_Convenience_alt <- survey_data %>%  
+  filter(!is.na(Q7_3)) %>% 
+  filter(!is.na(Carshare_Type)) %>%
+  filter(!(Q9=="Yes"&Q30=="Find living here unaffordable")) %>% 
+  group_by( Carshare_Type,Q7_3) %>%
+  tally %>% 
+  mutate(percent=100*n/sum(n)) %>% 
+  ggplot(aes(x=Carshare_Type,fill=Q7_3))+
+  geom_bar(aes(weight=percent),position="stack")+
+  theme_dark()+
+  theme(plot.title = element_text(hjust = 0.5))+
+  ggtitle("Do you use CS for convenience vs carsharing service") +
+  labs(x="What type of carsharing service(s) do you belong to",
+       y="Percent")+
+  scale_fill_manual(values=rev(brewer.pal(n=5, "RdYlGn")))+
+  geom_text(aes(y = percent, label = paste(round(percent,digits=1),"%",sep="")), position = position_stack(vjust = 0.5), size=3)+
+  labs(fill=str_wrap('Do you use CS for convenience ',width=15))+
+  coord_flip()
+
+CarshareType_Convenience
+CarshareType_Convenience_alt
+
+```
+
+```{r}
+ggsave(filename = 'Two-WayVsFree-Floating/Q7_3Convenience_TypeOfCS.png', plot = CarshareType_Convenience, device = 'png', width = 10, height = 8)
+ggsave(filename = 'Two-WayVsFree-Floating/Q7_3Convenience_TypeOfCS_Alt.png', plot = CarshareType_Convenience_alt, device = 'png', width = 14, height = 8)
+```

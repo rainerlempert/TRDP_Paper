@@ -1,0 +1,258 @@
+---
+title: "Multiple Linear Regression for Number of Cars per Household"
+author: "Rainer Lempert"
+date: '`r format(Sys.time())`'
+output:
+  bookdown::word_document2: null
+  bookdown::pdf_document2:
+    includes:
+      before_body: template/doc_prefix.tex
+      in_header: template/preamble.tex
+    keep_tex: yes
+    latex_engine: pdflatex
+    number_sections: no
+    toc: no
+  bookdown::tufte_html2:
+    number_sections: no
+    toc: yes
+  bookdown::html_document2:
+    number_sections: no
+    theme: readable
+    toc: yes
+fontsize: 12pt
+linestretch: 1.5
+link-citations: yes
+csl: https://raw.githubusercontent.com/citation-style-language/styles/master/ecology.csl
+bibliography: template/ref.bib
+---
+
+```{r, include=FALSE}
+library(tidyverse)
+library(chron) # for time manipulation
+library(geosphere) # for counters!
+library(broom) # for tidy()
+library(knitr) # for kable()
+library(data.table)
+library(forcats)
+library(xts)
+library(TTR)
+library(lubridate)
+library(scales) 
+library(gridExtra)
+library(RColorBrewer)
+library(stringr)
+library(ggmap)
+```
+
+```{r, include=FALSE}
+survey_data <- read_csv(file="DataSets/Vancity_CarSharing_Data.csv")
+survey_data_2 <- read_csv(file="DataSets/Vancity_CarSharing_Data_Indices.csv")
+```
+# Develop The Model
+
+33 dependent variables from the survey were chosen:
+
+- Q6 - How long have you been a member of a CSO
+- Reasons for CS use
+	- Q7_1 - To reduce carbon footprint 
+	- Q7_2 - To save money
+	- Q7_3 - For convenience
+	- Q7_4 - ‘Just in case’ you need it
+	- Q7_5 - Because there is no Uber/Lyft in town
+	- Q7_6 - Personal safety - safer than public transit
+- Q8 - Have you disposed a vehicle and used CS instead
+- Q9 - Without CS would you have bought or acquired a vehicle?
+- Cost-related reasons for CS use
+	- Q10_1 - CS saves me money because I don’t have to own a vehicle (or another vehicle)
+	- Q10_2 - CS saves me money because it’s cheaper than using a taxi
+	- Q10_3 - I look at the cost of CS vs cost of walking or biking
+	- Q10_4 - I look at the cost of CS vs the cost of public transit
+	- Q10_5 - I rarely evaluate the cost of using CS versus the alternatives
+- Q11 - Can I afford another vehicle?
+- Material benefits of CS
+	- Q13_1 - Easier to meet up with friends and family
+	- Q13_2 - I go to more places in the city
+	- Q13_3 - I go to more places outside the city
+	- Q13_4 - I get ‘stuff’ done more efficiently; errands, meetings, shopping, etc
+- Mental benefits of CS
+	- Q14_1 - I enjoy the freedom
+	- Q14_2 - I like not having to rely on others for a ride
+	- Q14_3 - Peace of mind knowing I have personal mobility when needed
+	- Q14_4 - I like not owning a vehicle (or another vehicle)
+	- Q14_5 - I like having different options for getting around
+- Q15 - Has your CS use fallen off?
+- Q23 - Age
+- Q24 - Gender
+- Q26 - Number of drivers per household
+- Q27 - Number of vehicles per household
+- Q28 - Number of children per household
+- Q29 - Are you a homeowner
+- Q30 - Affordability index
+- Q31 - Income
+
+Variables were chosen to be either numerical, ordinal, or binary. 
+```{r, include=FALSE}
+mydata<-survey_data_2 %>%
+  mutate(type_of_cs=ifelse(is.na(Q4_1)&is.na(Q4_2)&is.na(Q4_3)&is.na(Q4_4),"None",
+                    ifelse(!is.na(Q4_1)&is.na(Q4_2)&is.na(Q4_3)&is.na(Q4_4),"Two-Way",
+                    ifelse(is.na(Q4_1)&!is.na(Q4_2)&is.na(Q4_3)&is.na(Q4_4),"Two-Way",
+                    ifelse(is.na(Q4_1)&is.na(Q4_2)&!is.na(Q4_3)&is.na(Q4_4),"One-Way",
+                    ifelse(is.na(Q4_1)&is.na(Q4_2)&is.na(Q4_3)&!is.na(Q4_4),"One-Way",
+                    ifelse(!is.na(Q4_1)&!is.na(Q4_2)&is.na(Q4_3)&is.na(Q4_4),"Two-Way",
+                    ifelse(!is.na(Q4_1)&is.na(Q4_2)&!is.na(Q4_3)&is.na(Q4_4),"Both",
+                    ifelse(!is.na(Q4_1)&is.na(Q4_2)&is.na(Q4_3)&!is.na(Q4_4),"Both",
+                    ifelse(is.na(Q4_1)&!is.na(Q4_2)&!is.na(Q4_3)&is.na(Q4_4),"Both",
+                    ifelse(is.na(Q4_1)&!is.na(Q4_2)&is.na(Q4_3)&!is.na(Q4_4),"Both",
+                    ifelse(is.na(Q4_1)&is.na(Q4_2)&!is.na(Q4_3)&!is.na(Q4_4),"One-Way",
+                    ifelse(!is.na(Q4_1)&!is.na(Q4_2)&!is.na(Q4_3)&is.na(Q4_4),"Both", 
+                    ifelse(!is.na(Q4_1)&!is.na(Q4_2)&is.na(Q4_3)&!is.na(Q4_4),"Both",
+                    ifelse(!is.na(Q4_1)&is.na(Q4_2)&!is.na(Q4_3)&!is.na(Q4_4),"Both", 
+                    ifelse(is.na(Q4_1)&!is.na(Q4_2)&!is.na(Q4_3)&!is.na(Q4_4),"Both", "Both")))))))))))))))) %>% 
+	filter(
+					!is.na(Q6)& #How long have you been a member?
+
+				 	#Reasons for CS use
+				 	!is.na(Q7_1)& #To reduce your carbon footprint and help the environment
+				 	!is.na(Q7_2)& #To save money
+				 	!is.na(Q7_3)& #For convenience
+				 	!is.na(Q7_4)& #Your membership is 'just in case' you need it
+				 	!is.na(Q7_5)& #Because we have no Uber/Lyft in town
+				 	!is.na(Q7_6)& #Personal safety - safer than using public transit
+
+				 	!is.na(Q8)& #Have you disposed a vehicle and used CS instead?
+				 	!is.na(Q9)& #Without CS would you have bought or acquired a vehicle?
+
+				 	#Cost-related reasons for CS use
+				 	!is.na(Q10_1)& #CS saves me money because I don't have to own a vehicle (or another vehicle)
+				 	!is.na(Q10_2)& #CS saves me money because it's cheaper than using a taxi
+				 	!is.na(Q10_3)& #I look at the cost of CS vs cost of walking or biking
+				 	!is.na(Q10_4)& #I look at the cost of CS vs the cost of public transit
+				 	!is.na(Q10_5)& #I rarely evaluate the cost of using CS versus the alternatives
+
+				 	!is.na(Q11)& #Can I afford another vehicle?
+
+				 	#Material benefits of CS
+				 	!is.na(Q13_1)& #Easier to meet up with friends and family
+				 	!is.na(Q13_2)& #I go to more places in the city
+				 	!is.na(Q13_3)& #I go to more places outside the city
+				 	!is.na(Q13_4)& #I get 'stuff' done more efficiently; errands, meetings, shopping, etc
+
+				 	#Mental benefits of CS
+				 	!is.na(Q14_1)& #I enjoy the freedom
+				 	!is.na(Q14_2)& #I like not having to rely on others for a ride
+				 	!is.na(Q14_3)& #Peace of mind knowing I have personal mobility when needed
+				 	!is.na(Q14_4)& #I like not owning a vehicle (or another vehicle)
+				 	!is.na(Q14_5)& #I like having different options for getting around
+
+				 	!is.na(Q15)& #Has your CS use fallen off?
+				 	!is.na(Q23)& #Age
+				 	!is.na(Q24)& #Gender
+				 	!is.na(Q26_1_TEXT)& #Number of drivers per household
+				 	!is.na(Q27_1_TEXT)& #Number of vehicles per household
+				 	!is.na(Q28)& #Number of children per household
+				 	!is.na(Q29)& #Are you a homeowner?
+				 	!is.na(Q30)& #Affordability index
+				 	!is.na(Q31)) #Income
+```
+
+
+```{r, include=FALSE}
+
+mymodel <- lm(Q27_1_TEXT ~ Q6+
+											Q7_1+
+											Q7_2+
+											Q7_3+
+											Q7_4+
+											Q7_5+
+											Q7_6+
+											Q8+
+											Q9+
+											Q10_1+
+											Q10_2+
+											Q10_3+
+											Q10_4+
+											Q10_5+
+											Q11+
+											Q13_1+
+											Q13_2+
+											Q13_3+
+											Q13_4+
+											Q14_1+
+											Q14_2+
+											Q14_3+
+											Q14_4+
+											Q14_5+
+											Q15+
+											Q23+
+											Q24+
+											Q26_1_TEXT+ 
+										#	Q27+ 
+											Q28+
+											Q29+
+											Q30+
+											Q31, 
+										data=mydata)
+summary(mymodel)
+
+```
+
+
+
+# Results
+```{r, echo=FALSE}
+out <- tidy(mymodel)
+out<-out %>%
+	mutate(Sig.=if_else(p.value<0.001,"***",if_else(p.value<.01,"**",if_else(p.value<0.05,"*",if_else(p.value<0.1,"."," ")))))
+kable(out)
+```
+
+After doing this analysis, these are the variables that have explanatory power (at an $\alpha = 0.05$) over type of CS usage:
+
+
+- Q6 - How long have you been a member of a CSO
+	- Correlation between people being members for longer periods of time and having fewer cars
+- Q7_2 - To save money
+	- Correlation between people agreeing and having more cars
+- Q7_4 - ‘Just in case’ you need it
+	- *STRONG* correlation between people agreeing and having more cars
+- Q7_6 - Personal safety - safer than public transit
+	- *STRONG* correlation between people agreeing and having more cars
+- Q9 - Without CS would you have bought or acquired a vehicle?
+	- 2=no, 1=yes.
+	- Correlation between people agreeing and having more cars
+- Q10_1 - CS saves me money because I don’t have to own a vehicle (or another vehicle)
+	- Correlation between people agreeing and having fewer cars
+- Q10_5 - I rarely evaluate the cost of using CS versus the alternatives
+	- Correlation between people agreeing and having more cars
+- Q11 - Can I afford another vehicle?
+	- 2=no, 1=yes.
+	- Correlation between people agreeing and having more cars (woo hoo)
+- Q13_3 - I go to more places outside the city
+	- *STRONG* correlation between people agreeing and having fewer cars
+- Q13_4 - I get ‘stuff’ done more efficiently; errands, meetings, shopping, etc
+	- *STRONG* correlation between people agreeing and having fewer cars
+- Q14_4 - I like not owning a vehicle (or another vehicle)
+	- *STRONG* correlation between people agreeing and haing fewer cars
+- Q23 - Age
+	- Correlation between people being older and using two-way over both
+- Q24 - Gender
+	- 2=female, 1=male.
+	- Correlation between people being male and having more cars
+- Q26 - Number of drivers per household
+	- *STRONG* correlation between there more drivers per household and having more cars (woo hoo)
+- Q29 - Are you a homeowner
+	- 2=no, 1=yes
+	- *STRONG* correlation between being a homeowner and having more cars
+- Q30 - Affordability index
+	- Correlation between finding Vancouver more affordable and having more cars
+
+
+
+
+
+
+
+
+
+
+

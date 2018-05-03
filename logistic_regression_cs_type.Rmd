@@ -1,0 +1,473 @@
+---
+title: "Multinomial Logistic Regression for Type of CS"
+author: "Rainer Lempert"
+date: '`r format(Sys.time())`'
+output:
+  bookdown::word_document2: null
+  bookdown::pdf_document2:
+    includes:
+      before_body: template/doc_prefix.tex
+      in_header: template/preamble.tex
+    keep_tex: yes
+    latex_engine: pdflatex
+    number_sections: no
+    toc: no
+  bookdown::tufte_html2:
+    number_sections: no
+    toc: yes
+  bookdown::html_document2:
+    number_sections: no
+    theme: readable
+    toc: yes
+fontsize: 12pt
+linestretch: 1.5
+link-citations: yes
+csl: https://raw.githubusercontent.com/citation-style-language/styles/master/ecology.csl
+bibliography: template/ref.bib
+---
+
+
+```{r include=FALSE}
+library(tidyverse)
+library(chron) # for time manipulation
+library(geosphere) # for counters!
+library(knitr)
+library(broom)
+library(data.table)
+library(forcats)
+library(xts)
+library(TTR)
+library(lubridate)
+library(scales) 
+library(gridExtra)
+library(RColorBrewer)
+library(stringr)
+library(ggmap)
+```
+
+```{r include=FALSE}
+survey_data <- read_csv(file="DataSets/Vancity_CarSharing_Data.csv")
+survey_data_2 <- read_csv(file="DataSets/Vancity_CarSharing_Data_Indices.csv")
+```
+
+
+
+```{r, include=FALSE}
+#Remove NA's from the slice of data I am looking at
+mydata<-survey_data_2 %>%
+	filter(!(is.na(Q4_1)&is.na(Q4_2)&is.na(Q4_3)&is.na(Q4_4)&is.na(Q4_5)&is.na(Q4_6)&is.na(Q4_7))) %>% 
+  mutate(type_of_cs=ifelse(is.na(Q4_1)&is.na(Q4_2)&is.na(Q4_3)&is.na(Q4_4),"None",
+                    ifelse(!is.na(Q4_1)&is.na(Q4_2)&is.na(Q4_3)&is.na(Q4_4),"Two-Way",
+                    ifelse(is.na(Q4_1)&!is.na(Q4_2)&is.na(Q4_3)&is.na(Q4_4),"Two-Way",
+                    ifelse(is.na(Q4_1)&is.na(Q4_2)&!is.na(Q4_3)&is.na(Q4_4),"One-Way",
+                    ifelse(is.na(Q4_1)&is.na(Q4_2)&is.na(Q4_3)&!is.na(Q4_4),"One-Way",
+                    ifelse(!is.na(Q4_1)&!is.na(Q4_2)&is.na(Q4_3)&is.na(Q4_4),"Two-Way",
+                    ifelse(!is.na(Q4_1)&is.na(Q4_2)&!is.na(Q4_3)&is.na(Q4_4),"Both",
+                    ifelse(!is.na(Q4_1)&is.na(Q4_2)&is.na(Q4_3)&!is.na(Q4_4),"Both",
+                    ifelse(is.na(Q4_1)&!is.na(Q4_2)&!is.na(Q4_3)&is.na(Q4_4),"Both",
+                    ifelse(is.na(Q4_1)&!is.na(Q4_2)&is.na(Q4_3)&!is.na(Q4_4),"Both",
+                    ifelse(is.na(Q4_1)&is.na(Q4_2)&!is.na(Q4_3)&!is.na(Q4_4),"One-Way",
+                    ifelse(!is.na(Q4_1)&!is.na(Q4_2)&!is.na(Q4_3)&is.na(Q4_4),"Both", 
+                    ifelse(!is.na(Q4_1)&!is.na(Q4_2)&is.na(Q4_3)&!is.na(Q4_4),"Both",
+                    ifelse(!is.na(Q4_1)&is.na(Q4_2)&!is.na(Q4_3)&!is.na(Q4_4),"Both", 
+                    ifelse(is.na(Q4_1)&!is.na(Q4_2)&!is.na(Q4_3)&!is.na(Q4_4),"Both", "Both")))))))))))))))) %>% 
+	filter(type_of_cs!="None") %>% 
+	mutate(output=if_else(type_of_cs=="One-Way",1,if_else(type_of_cs=="Two-Way",2,3)))   %>% 
+	filter(
+					!is.na(Q6)& #How long have you been a member?
+
+				 	#Reasons for CS use
+				 	!is.na(Q7_1)& #To reduce your carbon footprint and help the environment
+				 	!is.na(Q7_2)& #To save money
+				 	!is.na(Q7_3)& #For convenience
+				 	!is.na(Q7_4)& #Your membership is 'just in case' you need it
+				 	!is.na(Q7_5)& #Because we have no Uber/Lyft in town
+				 	!is.na(Q7_6)& #Personal safety - safer than using public transit
+
+				 	!is.na(Q8)& #Have you disposed a vehicle and used CS instead?
+				 	!is.na(Q9)& #Without CS would you have bought or acquired a vehicle?
+
+				 	#Cost-related reasons for CS use
+				 	!is.na(Q10_1)& #CS saves me money because I don't have to own a vehicle (or another vehicle)
+				 	!is.na(Q10_2)& #CS saves me money because it's cheaper than using a taxi
+				 	!is.na(Q10_3)& #I look at the cost of CS vs cost of walking or biking
+				 	!is.na(Q10_4)& #I look at the cost of CS vs the cost of public transit
+				 	!is.na(Q10_5)& #I rarely evaluate the cost of using CS versus the alternatives
+
+				 	!is.na(Q11)& #Can I afford another vehicle?
+
+				 	#Material benefits of CS
+				 	!is.na(Q13_1)& #Easier to meet up with friends and family
+				 	!is.na(Q13_2)& #I go to more places in the city
+				 	!is.na(Q13_3)& #I go to more places outside the city
+				 	!is.na(Q13_4)& #I get 'stuff' done more efficiently; errands, meetings, shopping, etc
+
+				 	#Mental benefits of CS
+				 	!is.na(Q14_1)& #I enjoy the freedom
+				 	!is.na(Q14_2)& #I like not having to rely on others for a ride
+				 	!is.na(Q14_3)& #Peace of mind knowing I have personal mobility when needed
+				 	!is.na(Q14_4)& #I like not owning a vehicle (or another vehicle)
+				 	!is.na(Q14_5)& #I like having different options for getting around
+
+				 	!is.na(Q15)& #Has your CS use fallen off?
+				 	!is.na(Q23)& #Age
+				 	!is.na(Q24)& #Gender
+				 	!is.na(Q26_1_TEXT)& #Number of drivers per household
+				 	!is.na(Q27_1_TEXT)& #Number of vehicles per household
+				 	!is.na(Q28)& #Number of children per household
+				 	!is.na(Q29)& #Are you a homeowner?
+				 	!is.na(Q30)& #Affordability index
+				 	!is.na(Q31)) #Income
+```
+
+# Develop The Model
+33 dependent variables from the survey were chosen:
+
+- Q6 - How long have you been a member of a CSO
+- Reasons for CS use
+	- Q7_1 - To reduce carbon footprint 
+	- Q7_2 - To save money
+	- Q7_3 - For convenience
+	- Q7_4 - ‘Just in case’ you need it
+	- Q7_5 - Because there is no Uber/Lyft in town
+	- Q7_6 - Personal safety - safer than public transit
+- Q8 - Have you disposed a vehicle and used CS instead
+- Q9 - Without CS would you have bought or acquired a vehicle?
+- Cost-related reasons for CS use
+	- Q10_1 - CS saves me money because I don’t have to own a vehicle (or another vehicle)
+	- Q10_2 - CS saves me money because it’s cheaper than using a taxi
+	- Q10_3 - I look at the cost of CS vs cost of walking or biking
+	- Q10_4 - I look at the cost of CS vs the cost of public transit
+	- Q10_5 - I rarely evaluate the cost of using CS versus the alternatives
+- Q11 - Can I afford another vehicle?
+- Material benefits of CS
+	- Q13_1 - Easier to meet up with friends and family
+	- Q13_2 - I go to more places in the city
+	- Q13_3 - I go to more places outside the city
+	- Q13_4 - I get ‘stuff’ done more efficiently; errands, meetings, shopping, etc
+- Mental benefits of CS
+	- Q14_1 - I enjoy the freedom
+	- Q14_2 - I like not having to rely on others for a ride
+	- Q14_3 - Peace of mind knowing I have personal mobility when needed
+	- Q14_4 - I like not owning a vehicle (or another vehicle)
+	- Q14_5 - I like having different options for getting around
+- Q15 - Has your CS use fallen off?
+- Q23 - Age
+- Q24 - Gender
+- Q26 - Number of drivers per household
+- Q27 - Number of vehicles per household
+- Q28 - Number of children per household
+- Q29 - Are you a homeowner
+- Q30 - Affordability index
+- Q31 - Income
+
+Variables were chosen to be either numerical, ordinal, or binary. 
+
+
+# Model with 'Both' as reference variable
+```{r, include=FALSE}
+# This was beautiful and brilliant: https://www.youtube.com/watch?v=fDjKa7yWk1U
+# convert to factor
+mydata$output<-as.factor(mydata$type_of_cs)
+
+# set baseline
+mydata$out <- relevel(mydata$output, ref = "Both")
+```
+
+
+
+```{r, include=FALSE}
+library(nnet)
+mymodel <- multinom(out ~ Q6+
+											Q7_1+
+											Q7_2+
+											Q7_3+
+											Q7_4+
+											Q7_5+
+											Q7_6+
+											Q8+
+											Q9+
+											Q10_1+
+											Q10_2+
+											Q10_3+
+											Q10_4+
+											Q10_5+
+											Q11+
+											Q13_1+
+											Q13_2+
+											Q13_3+
+											Q13_4+
+											Q14_1+
+											Q14_2+
+											Q14_3+
+											Q14_4+
+											Q14_5+
+											Q15+
+											Q23+
+											Q24+
+											Q26_1_TEXT+ 
+											Q27_1_TEXT+ 
+											Q28+
+											Q29+
+											Q30+
+											Q31, 
+										data=mydata)
+
+weights<-as.data.frame(t(summary(mymodel)$coefficients))
+```
+
+
+
+
+
+
+```{r, include=FALSE}
+# Predictions
+#predict(mymodel,mydata,type="prob")
+```
+
+
+
+
+
+The models predictions. Adding down a column gets actual values, across a row is the predicted values. The misclassification rate is 19.9% (1 minus the sum of the diagonals divided by the sum of all values)
+
+```{r, echo=FALSE}
+cm<-table(predict(mymodel),mydata$output)
+kable((cm))
+
+# across is actual value
+# down is modeled value
+```
+
+ 
+```{r,include=FALSE}
+1-sum(diag(cm))/sum(cm)
+
+	
+```
+
+
+I conducted a two-tailed Z-Test. `**` means that both variables are under the 0.05 confidence level. `*` means that only one is under the 0.05 confidence level.
+```{r, include = FALSE}
+z <- summary(mymodel)$coefficients/summary(mymodel)$standard.errors
+p <- (1-pnorm(abs(z),0,1))*2
+
+# `sprintf` https://stackoverflow.com/questions/40671349/r-sprintf-maximum-two-decimals-but-no-leading-zeros
+```
+
+
+
+
+
+
+```{r, include=FALSE}
+sig_test<-data.frame(t(as.data.frame(p)))
+
+setDT(sig_test,keep.rownames = TRUE)[]
+
+```
+
+
+
+```{r, echo=FALSE}
+sig_test<-sig_test %>% 
+	mutate(Sig=if_else(One.Way<0.05&Two.Way<0.05,"**",if_else(One.Way<0.05&Two.Way>=0.05,"*",if_else(One.Way>=0.05&Two.Way<0.05,"*"," "))))
+
+results<-cbind(weights,sig_test)
+
+results<-results %>% 
+	select(" "=rn,One.Way.Coefficient=`One-Way`,One.Way.PValue=One.Way,Two.Way.Coefficient=`Two-Way`,Two.Way.PValue=Two.Way,Sig)
+
+rownames(results)<-c()
+
+kable(results)
+
+# for interpretation: https://www.researchgate.net/post/How_can_I_interpret_the_negative_value_of_regression_coefficient_in_logistic_regression
+```
+
+
+After doing this analysis, these are the variables that have explanatory power (at an $\alpha = 0.05$) over type of CS usage:
+
+
+- Q6 - How long have you been a member of a CSO
+	- *STRONG* correlation between people being members for longer periods of time and using both over one-way
+	- Correlation between people being members for longer periods of time and using both over two-way
+- Q7_2 - To save money
+	- Correlation between people agreeing and using two-way over both
+- Q7_3 - For convenience
+	- Correlation between people agreeing and using both over two-way
+- Q7_5 - Because there is no Uber/Lyft in town
+	- Correlation between people agreeing and using both over two-way
+- Q9 - Without CS would you have bought or acquired a vehicle?
+	- 2=no, 1=yes.
+	- Correlation between people disagreeing and using one-way over both
+	- Correlation between people disagreeing and using two-way over both
+- Q10_2 - CS saves me money because it’s cheaper than using a taxi
+	- Correlation between people agreeing and using both over two-way
+- Q13_1 - Easier to meet up with friends and family
+	- Correlation between agreeing and using one-way over both
+- Q13_3 - I go to more places outside the city
+	- *STRONG* correlation between people agreeing and using both over one-way
+	- Correlation between people agreeing and using two-way over one-way
+- Q23 - Age
+	- Correlation between people being older and using two-way over both
+- Q27 - Number of vehicles per household
+	- *STONG* correlation between people having more vehicles and using one-way over both 
+	- Correlation between people having more vehicles and using two-way over both
+- Q31 - Income
+	- Correlation between people having more money and using both over two-way
+
+
+```{r, include=FALSE}
+# Checking all the different combinations of variables
+
+#Maybe I dont want to data dredge....:
+#When enough hypotheses are tested, it is virtually certain that some will be statistically significant but misleading, since almost every data set with any degree of randomness is likely to contain (for example) some spurious correlations.
+# https://stats.stackexchange.com/questions/20836/algorithms-for-automatic-model-selection/20856#20856
+# https://stackoverflow.com/questions/28606549/how-to-run-lm-models-using-all-possible-combinations-of-several-variables-and-a
+```
+
+
+# Model with 'One-Way' as reference variable
+```{r, include=FALSE}
+# This was beautiful and brilliant: https://www.youtube.com/watch?v=fDjKa7yWk1U
+# convert to factor
+mydata$output1<-as.factor(mydata$type_of_cs)
+
+# set baseline
+mydata$out <- relevel(mydata$output1, ref = "One-Way")
+```
+
+
+
+```{r, include=FALSE}
+library(nnet)
+mymodel1 <- multinom(out ~ Q6+
+											Q7_1+
+											Q7_2+
+											Q7_3+
+											Q7_4+
+											Q7_5+
+											Q7_6+
+											Q8+
+											Q9+
+											Q10_1+
+											Q10_2+
+											Q10_3+
+											Q10_4+
+											Q10_5+
+											Q11+
+											Q13_1+
+											Q13_2+
+											Q13_3+
+											Q13_4+
+											Q14_1+
+											Q14_2+
+											Q14_3+
+											Q14_4+
+											Q14_5+
+											Q15+
+											Q23+
+											Q24+
+											Q26_1_TEXT+ 
+											Q27_1_TEXT+ 
+											Q28+
+											Q29+
+											Q30+
+											Q31, 
+										data=mydata)
+
+weights1<-as.data.frame(t(summary(mymodel1)$coefficients))
+weights1<-weights1 %>% rename(Both.=Both)
+```
+
+
+
+
+
+
+
+
+
+The models predictions are identical to the previous models. Please refer to the above section for that.
+
+
+
+Two tailed z-test:  `**` means that both variables are under the 0.05 confidence level. `*` means that only one is under the 0.05 confidence level.
+```{r, include = FALSE}
+z1 <- summary(mymodel1)$coefficients/summary(mymodel)$standard.errors
+p1 <- (1-pnorm(abs(z1),0,1))*2
+
+# `sprintf` https://stackoverflow.com/questions/40671349/r-sprintf-maximum-two-decimals-but-no-leading-zeros
+```
+
+
+
+
+
+
+```{r, include=FALSE}
+sig_test1<-data.frame(t(as.data.frame(p1)))
+
+setDT(sig_test1,keep.rownames = TRUE)[]
+
+```
+
+
+
+```{r, echo=FALSE}
+sig_test1<-sig_test1 %>% 
+	mutate(Sig=if_else(Both<0.05&Two.Way<0.05,"**",if_else(Both<0.05&Two.Way>=0.05,"*",if_else(Both>=0.05&Two.Way<0.05,"*"," "))))
+
+results1<-cbind(weights1,sig_test1)
+
+results1<-results1 %>% 
+	select(" "=rn,Both.Coefficient=`Both.`,Both.PValue=Both,Two.Way.Coefficient=`Two-Way`,Two.Way.PValue=Two.Way,Sig)
+
+rownames(results1)<-c()
+
+kable(results1)
+
+# for interpretation: https://www.researchgate.net/post/How_can_I_interpret_the_negative_value_of_regression_coefficient_in_logistic_regression
+```
+
+
+After doing this analysis, these are the variables that have explanatory power (at an $\alpha = 0.05$) over type of CS usage:
+
+
+- Q6 - How long have you been a member of a CSO
+	- *STRONG* correlation between using carshare longer and using both over one-way
+	- *STRONG* correlation between using carshare longer and using two-way over one-way
+- Q7_2 - To save money
+	- Correlation between agreeing and using two-way over one-way
+- Q7_3 - For convenience
+	- Correlation between agreeing and using one-way over two-way
+- Q7_5 - Because there is no Uber/Lyft in town
+	- Correlatoin between agreeing and using one-way over two-way
+- Q9 - Without CS would you have bought or acquired a vehicle?
+	- 2=no, 1=yes. 
+	- Correlation between disagreeing and using one-way over both
+- Q10_2 - CS saves me money because it’s cheaper than using a taxi
+	- Correlation between people agreeing with this and using one-way, not two-way.
+- Q11 - Can I afford another vehicle?
+	- 2=no, 1=yes. 
+	- Correlation between people disagreeing with this and using one-way over two-way
+- Q13_1 - Easier to meet up with friends and family
+	- Correlation between agreeing and using one-way over two-way. 
+	- Correlation between agreeing and using one-way over both
+- Q13_3 - I go to more places outside the city
+	- *STRONG* correlation between agreeing and using both over one-way
+	- *STRONG* correlation between agreeing and using two-way over one-way
+- Q23 - Age
+	- Correlation between being older and using two-way over one-way
+- Q27 - Number of vehicles per household
+	- Correlation between having more vehicles and using one-way over two-way
+- Q31 - Income
+	- Correlation between being wealthier and using one-way over two-way
+
+
+
+
+
+

@@ -1,0 +1,234 @@
+---
+title: "Untitled"
+author: "Rainer"
+date: "5/1/2018"
+output: html_document
+---
+
+```{r}
+library(tidyverse)
+library(chron) # for time manipulation
+library(geosphere) # for counters!
+library(knitr)
+library(data.table)
+library(forcats)
+library(xts)
+library(TTR)
+library(lubridate)
+library(scales) 
+library(gridExtra)
+library(RColorBrewer)
+library(stringr)
+library(ggmap)
+```
+
+```{r}
+survey_data <- read_csv(file="DataSets/Vancity_CarSharing_Data.csv")
+survey_data_2 <- read_csv(file="DataSets/Vancity_CarSharing_Data_Indices.csv")
+```
+
+
+Clean the data set
+```{r}
+survey_data$StartDate<-as.Date(survey_data$StartDate, format="%m/%d/%y")
+survey_data$EndDate<-as.Date(survey_data$EndDate, format="%m/%d/%y")
+survey_data$Duration__in_seconds_<-as.double(survey_data$Duration__in_seconds_)
+
+#https://stackoverflow.com/questions/20637360/convert-all-data-frame-character-columns-to-factors
+survey_data <- as.data.frame(unclass(survey_data))
+```
+
+Remove NA's from the slice of data I am looking at
+```{r}
+mydata<-survey_data_2 %>%
+  mutate(type_of_cs=ifelse(is.na(Q4_1)&is.na(Q4_2)&is.na(Q4_3)&is.na(Q4_4),"None",
+                    ifelse(!is.na(Q4_1)&is.na(Q4_2)&is.na(Q4_3)&is.na(Q4_4),"Two-Way",
+                    ifelse(is.na(Q4_1)&!is.na(Q4_2)&is.na(Q4_3)&is.na(Q4_4),"Two-Way",
+                    ifelse(is.na(Q4_1)&is.na(Q4_2)&!is.na(Q4_3)&is.na(Q4_4),"One-Way",
+                    ifelse(is.na(Q4_1)&is.na(Q4_2)&is.na(Q4_3)&!is.na(Q4_4),"One-Way",
+                    ifelse(!is.na(Q4_1)&!is.na(Q4_2)&is.na(Q4_3)&is.na(Q4_4),"Two-Way",
+                    ifelse(!is.na(Q4_1)&is.na(Q4_2)&!is.na(Q4_3)&is.na(Q4_4),"Both",
+                    ifelse(!is.na(Q4_1)&is.na(Q4_2)&is.na(Q4_3)&!is.na(Q4_4),"Both",
+                    ifelse(is.na(Q4_1)&!is.na(Q4_2)&!is.na(Q4_3)&is.na(Q4_4),"Both",
+                    ifelse(is.na(Q4_1)&!is.na(Q4_2)&is.na(Q4_3)&!is.na(Q4_4),"Both",
+                    ifelse(is.na(Q4_1)&is.na(Q4_2)&!is.na(Q4_3)&!is.na(Q4_4),"One-Way",
+                    ifelse(!is.na(Q4_1)&!is.na(Q4_2)&!is.na(Q4_3)&is.na(Q4_4),"Both", 
+                    ifelse(!is.na(Q4_1)&!is.na(Q4_2)&is.na(Q4_3)&!is.na(Q4_4),"Both",
+                    ifelse(!is.na(Q4_1)&is.na(Q4_2)&!is.na(Q4_3)&!is.na(Q4_4),"Both", 
+                    ifelse(is.na(Q4_1)&!is.na(Q4_2)&!is.na(Q4_3)&!is.na(Q4_4),"Both", "Both")))))))))))))))) %>% 
+	filter(
+					!is.na(Q6)& #How long have you been a member?
+
+				 	#Reasons for CS use
+				 	!is.na(Q7_1)& #To reduce your carbon footprint and help the environment
+				 	!is.na(Q7_2)& #To save money
+				 	!is.na(Q7_3)& #For convenience
+				 	!is.na(Q7_4)& #Your membership is 'just in case' you need it
+				 	!is.na(Q7_5)& #Because we have no Uber/Lyft in town
+				 	!is.na(Q7_6)& #Personal safety - safer than using public transit
+
+				 	!is.na(Q8)& #Have you disposed a vehicle and used CS instead?
+				 	!is.na(Q9)& #Without CS would you have bought or acquired a vehicle?
+
+				 	#Cost-related reasons for CS use
+				 	!is.na(Q10_1)& #CS saves me money because I don't have to own a vehicle (or another vehicle)
+				 	!is.na(Q10_2)& #CS saves me money because it's cheaper than using a taxi
+				 	!is.na(Q10_3)& #I look at the cost of CS vs cost of walking or biking
+				 	!is.na(Q10_4)& #I look at the cost of CS vs the cost of public transit
+				 	!is.na(Q10_5)& #I rarely evaluate the cost of using CS versus the alternatives
+
+				 	!is.na(Q11)& #Can I afford another vehicle?
+
+				 	#Material benefits of CS
+				 	!is.na(Q13_1)& #Easier to meet up with friends and family
+				 	!is.na(Q13_2)& #I go to more places in the city
+				 	!is.na(Q13_3)& #I go to more places outside the city
+				 	!is.na(Q13_4)& #I get 'stuff' done more efficiently; errands, meetings, shopping, etc
+
+				 	#Mental benefits of CS
+				 	!is.na(Q14_1)& #I enjoy the freedom
+				 	!is.na(Q14_2)& #I like not having to rely on others for a ride
+				 	!is.na(Q14_3)& #Peace of mind knowing I have personal mobility when needed
+				 	!is.na(Q14_4)& #I like not owning a vehicle (or another vehicle)
+				 	!is.na(Q14_5)& #I like having different options for getting around
+
+				 	!is.na(Q15)& #Has your CS use fallen off?
+				 	!is.na(Q23)& #Age
+				 	!is.na(Q24)& #Gender
+				 	!is.na(Q26)& #Number of drivers per household
+				 	!is.na(Q27)& #Number of vehicles per household
+				 	!is.na(Q28)& #Number of children per household
+				 	!is.na(Q29)& #Are you a homeowner?
+				 	!is.na(Q30)& #Affordability index
+				 	!is.na(Q31)) #Income
+```
+
+
+https://www.youtube.com/watch?v=fDjKa7yWk1U
+```{r}
+# convert to factor
+mydata$output<-as.factor(mydata$Q18)
+
+# set baseline
+mydata$out <- relevel(mydata$output, ref = "1")
+```
+
+# Develop Multinomial Logistic regression model
+```{r}
+library(nnet)
+mymodel <- multinom(out ~ Q6+
+											Q7_1+
+											Q7_2+
+											Q7_3+
+											Q7_4+
+											Q7_5+
+											Q7_6+
+											Q8+
+											Q9+
+											Q10_1+
+											Q10_2+
+											Q10_3+
+											Q10_4+
+											Q10_5+
+											Q11+
+											Q13_1+
+											Q13_2+
+											Q13_3+
+											Q13_4+
+											Q14_1+
+											Q14_2+
+											Q14_3+
+											Q14_4+
+											Q14_5+
+											Q15+
+											Q23+
+											Q24+
+											Q26+ 
+											Q27+ 
+											Q28+
+											Q29+
+											Q30+
+											Q31, 
+										data=mydata)
+summary(mymodel)
+
+```
+
+
+
+
+# Predictions
+```{r}
+predict(mymodel,mydata,type="prob")
+```
+
+
+# Misclassification error
+```{r}
+cm<-table(predict(mymodel),mydata$output)
+print(cm)
+
+# across is actual value
+# down is modeled value
+
+1-sum(diag(cm))/sum(cm)
+mydata %>% 
+	group_by(output) %>% 
+	tally
+```
+
+
+# 2-tailed z test
+```{r}
+z <- summary(mymodel)$coefficients/summary(mymodel)$standard.errors
+p <- (1-pnorm(abs(z),0,1))*2
+
+# `sprintf` https://stackoverflow.com/questions/40671349/r-sprintf-maximum-two-decimals-but-no-leading-zeros
+
+p
+```
+
+
+
+
+```{r}
+sig_test<-data.frame(t(as.data.frame(p)))
+
+setDT(sig_test,keep.rownames = TRUE)[]
+
+```
+
+
+
+```{r}
+sig_test<-sig_test %>% 
+	mutate(Sig=if_else(X2<0.05&X3<0.05,"**",if_else(X2<0.05&X3>=0.05,"*",if_else(X2>=0.05&X3<0.05,"*"," "))))
+```
+
+```{r}
+write_csv(sig_test,"DataSets/Membership_sig_test.csv")
+```
+
+
+
+
+
+# Checking all the different combinations of variables
+
+Maybe I dont want to data dredge....:
+When enough hypotheses are tested, it is virtually certain that some will be statistically significant but misleading, since almost every data set with any degree of randomness is likely to contain (for example) some spurious correlations.
+https://stats.stackexchange.com/questions/20836/algorithms-for-automatic-model-selection/20856#20856
+https://stackoverflow.com/questions/28606549/how-to-run-lm-models-using-all-possible-combinations-of-several-variables-and-a
+```{r}
+library(MuMIn)
+```
+
+```{r}
+combinations<-dredge(mymodel)
+```
+
+
+
+
+
+
